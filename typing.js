@@ -3,161 +3,186 @@ const words = 'in one good real one not school set they state high life consider
 const wordsCount = words.length;
 const gameTime = 30 * 1000;
 
-window.timer = null;
-window.gameStart = null;
-window.pauseTime = 0;
+let timer = null;
+let gameStart = null;
+let gameIsOver = true;
 
-function addClass(el, name) {
-  el.className += ' ' + name;
-}
-
-function removeClass(el, name) {
-  el.className = el.className.replace(name, '');
-}
-
-function randomWord() {
-  const randomIndex = Math.floor(Math.random() * wordsCount);
-  return words[randomIndex].trim();
-}
-
+// Utility functions
+function addClass(el, name) { el.className += ' ' + name; }
+function removeClass(el, name) { el.className = el.className.replace(name, ''); }
+function randomWord() { return words[Math.floor(Math.random() * wordsCount)]; }
 function formatWord(word) {
-  return `<div class="word"><span class="letter">${word.split('').join('</span><span class="letter">')}</span></div>`;
+    return `<div class="word"><span class="letter">${word.split('').join('</span><span class="letter">')}</span></div>`;
 }
 
+// Typing stats
+function saveStats(wpm) {
+    let data = JSON.parse(localStorage.getItem('typingStats')) || { highest: 0, last: 0, totalTests: 0 };
+    data.last = Number(wpm);
+    data.totalTests += 1;
+    if (wpm > data.highest) data.highest = Number(wpm);
+    localStorage.setItem('typingStats', JSON.stringify(data));
+}
+function showStats() {
+    const statsDiv = document.getElementById('stats');
+    if (!statsDiv) return;
+    const data = JSON.parse(localStorage.getItem('typingStats')) || { highest: 0, last: 0, totalTests: 0 };
+    statsDiv.innerHTML = `
+        <h3>📈 Typing Stats</h3>
+        <p>🏆 <strong>Highest WPM:</strong> ${data.highest}</p>
+        <p>⌛ <strong>Last WPM:</strong> ${data.last}</p>
+        <p>🧮 <strong>Total Tests:</strong> ${data.totalTests}</p>
+    `;
+    statsDiv.style.display = 'block';
+}
+
+// Game functions
 function newGame() {
-  clearInterval(window.timer);
-  window.timer = null;
-  window.gameStart = null;
+    const gameEl = document.getElementById('game');
+    removeClass(gameEl, 'over');
+    gameIsOver = false;
 
-  const wordsContainer = document.getElementById('words');
-  wordsContainer.style.marginTop = '0px';
-  wordsContainer.innerHTML = '';
+    const wordsContainer = document.getElementById('words');
+    wordsContainer.innerHTML = '';
+    for (let i = 0; i < 200; i++) {
+        wordsContainer.innerHTML += formatWord(randomWord());
+    }
 
-  for (let i = 0; i < 200; i++) {
-    wordsContainer.innerHTML += formatWord(randomWord());
-  }
+    const firstWord = document.querySelector('.word');
+    const firstLetter = document.querySelector('.letter');
+    addClass(firstWord, 'current');
+    addClass(firstLetter, 'current');
 
-  // reset cursor & current letters
-  document.querySelectorAll('.letter, .word').forEach(el => el.classList.remove('current', 'correct', 'incorrect'));
-  addClass(document.querySelector('.word'), 'current');
-  addClass(document.querySelector('.letter'), 'current');
+    document.getElementById('info').innerHTML = gameTime / 1000;
+    wordsContainer.style.marginTop = '0px';
 
-  document.getElementById('info').innerHTML = (gameTime / 1000) + '';
-  document.getElementById('game').classList.remove('over');
+    const cursor = document.getElementById('cursor');
+    const rect = firstLetter.getBoundingClientRect();
+    cursor.style.top = rect.top + 2 + 'px';
+    cursor.style.left = rect.left + 'px';
+
+    clearInterval(timer);
+    timer = null;
+    gameStart = null;
 }
 
 function getWpm() {
-  const allWords = [...document.querySelectorAll('.word')];
-  const lastTypedWord = document.querySelector('.word.current');
-  const lastTypedWordIndex = allWords.indexOf(lastTypedWord) + 1;
-  const typedWords = allWords.slice(0, lastTypedWordIndex);
-
-  const correctWords = typedWords.filter(word => {
-    const letters = [...word.children];
-    const incorrectLetters = letters.filter(letter => letter.className.includes('incorrect'));
-    const correctLetters = letters.filter(letter => letter.className.includes('correct'));
-    return incorrectLetters.length === 0 && correctLetters.length === letters.length;
-  });
-
-  return Math.round(correctWords.length / gameTime * 60000);
+    const wordsEls = [...document.querySelectorAll('.word')];
+    const lastTypedWord = document.querySelector('.word.current');
+    const lastTypedWordIndex = wordsEls.indexOf(lastTypedWord) + 1;
+    const typedWords = wordsEls.slice(0, lastTypedWordIndex);
+    const correctWords = typedWords.filter(word => {
+        const letters = [...word.children];
+        const incorrectLetters = letters.filter(l => l.className.includes('incorrect'));
+        const correctLetters = letters.filter(l => l.className.includes('correct'));
+        return incorrectLetters.length === 0 && correctLetters.length === letters.length;
+    });
+    return correctWords.length / gameTime * 60000;
 }
 
 function gameOver() {
-  clearInterval(window.timer);
-  addClass(document.getElementById('game'), 'over');
-  const result = getWpm();
-  document.getElementById('info').innerHTML = `WPM: ${result}`;
+    if (gameIsOver) return;
+    clearInterval(timer);
+    timer = null;
+    gameIsOver = true;
+
+    addClass(document.getElementById('game'), 'over');
+
+    const wpm = Number(getWpm().toFixed(1));
+    document.getElementById('info').innerHTML = `WPM: ${wpm}`;
+
+    saveStats(wpm);
+    showStats();
 }
 
-document.getElementById('game').addEventListener('keyup', ev => {
-  const key = ev.key;
+// Typing input
+document.getElementById('game').addEventListener('keydown', ev => {
+    if (gameIsOver) return;
 
-  // ignore non-typing keys
-  if (key.length > 1 && key !== 'Backspace' && key !== ' ') return;
+    const key = ev.key;
+    const currentWord = document.querySelector('.word.current');
+    const currentLetter = document.querySelector('.letter.current');
+    const expected = currentLetter?.innerHTML || ' ';
+    const isLetter = key.length === 1 && key !== ' ';
+    const isSpace = key === ' ';
+    const isBackspace = key === 'Backspace';
+    const isFirstLetter = currentLetter === currentWord.firstChild;
 
-  const currentWord = document.querySelector('.word.current');
-  const currentLetter = document.querySelector('.letter.current');
-  const expected = currentLetter?.innerText || ' ';
-  const isLetter = key.length === 1 && key !== ' ';
-  const isSpace = key === ' ';
-  const isBackspace = key === 'Backspace';
-  const isFirstLetter = currentLetter === currentWord.firstChild;
-
-  if (document.querySelector('#game.over')) return;
-
-  if (!window.timer && isLetter) {
-    window.timer = setInterval(() => {
-      if (!window.gameStart) window.gameStart = Date.now();
-      const msPassed = Date.now() - window.gameStart;
-      const sLeft = Math.max(0, Math.round((gameTime - msPassed) / 1000));
-
-      if (sLeft <= 0) {
-        gameOver();
-        return;
-      }
-      document.getElementById('info').innerText = sLeft + '';
-    }, 1000);
-  }
-
-  if (isLetter) {
-    if (!currentLetter) return;
-    if (key.toLowerCase() === expected.toLowerCase()) {
-      addClass(currentLetter, 'correct');
-    } else {
-      addClass(currentLetter, 'incorrect');
+    // Start timer on first key
+    if (!timer && isLetter) {
+        gameStart = Date.now();
+        timer = setInterval(() => {
+            const elapsed = Date.now() - gameStart;
+            const sLeft = Math.max(0, Math.round((gameTime - elapsed) / 1000));
+            document.getElementById('info').innerHTML = sLeft;
+            if (sLeft <= 0) gameOver();
+        }, 1000);
     }
-    removeClass(currentLetter, 'current');
-    if (currentLetter.nextSibling) addClass(currentLetter.nextSibling, 'current');
-  }
 
-  if (isSpace) {
-    if (expected !== ' ') {
-      [...currentWord.querySelectorAll('.letter:not(.correct)')].forEach(letter => addClass(letter, 'incorrect'));
+    // Typing letters
+    if (isLetter) {
+        if (currentLetter) {
+            addClass(currentLetter, key === expected ? 'correct' : 'incorrect');
+            removeClass(currentLetter, 'current');
+            if (currentLetter.nextSibling) addClass(currentLetter.nextSibling, 'current');
+        } else {
+            const extra = document.createElement('span');
+            extra.innerHTML = key;
+            extra.className = 'letter incorrect extra';
+            currentWord.appendChild(extra);
+        }
     }
-    removeClass(currentWord, 'current');
-    if (currentWord.nextSibling) addClass(currentWord.nextSibling, 'current');
-    const nextLetter = currentWord.nextSibling?.firstChild;
-    if (nextLetter) addClass(nextLetter, 'current');
-  }
 
-  if (isBackspace) {
-    if (currentLetter && isFirstLetter) {
-      removeClass(currentWord, 'current');
-      addClass(currentWord.previousSibling, 'current');
-      removeClass(currentLetter, 'current');
-      addClass(currentWord.previousSibling.lastChild, 'current');
-      removeClass(currentWord.previousSibling.lastChild, 'incorrect');
-      removeClass(currentWord.previousSibling.lastChild, 'correct');
-    } else if (currentLetter && !isFirstLetter) {
-      removeClass(currentLetter, 'current');
-      addClass(currentLetter.previousSibling, 'current');
-      removeClass(currentLetter.previousSibling, 'incorrect');
-      removeClass(currentLetter.previousSibling, 'correct');
-    } else if (!currentLetter) {
-      addClass(currentWord.lastChild, 'current');
-      removeClass(currentWord.lastChild, 'incorrect');
-      removeClass(currentWord.lastChild, 'correct');
+    // Space
+    if (isSpace) {
+        const lettersToInvalidate = [...currentWord.children].filter(l => !l.className.includes('correct'));
+        lettersToInvalidate.forEach(l => addClass(l, 'incorrect'));
+        removeClass(currentWord, 'current');
+        if (currentWord.nextSibling) addClass(currentWord.nextSibling, 'current');
+        if (currentLetter) removeClass(currentLetter, 'current');
+        if (currentWord.nextSibling) addClass(currentWord.nextSibling.firstChild, 'current');
     }
-  }
 
-  // scroll words
-  if (currentWord.getBoundingClientRect().top > 250) {
-    const wordsContainer = document.getElementById('words');
-    const margin = parseInt(wordsContainer.style.marginTop || '0px');
-    wordsContainer.style.marginTop = (margin - 35) + 'px';
-  }
+    // Backspace
+    if (isBackspace && currentLetter) {
+        if (!isFirstLetter) {
+            removeClass(currentLetter, 'current');
+            addClass(currentLetter.previousSibling, 'current');
+            removeClass(currentLetter.previousSibling, 'incorrect');
+            removeClass(currentLetter.previousSibling, 'correct');
+        } else if (currentWord.previousSibling) {
+            removeClass(currentWord, 'current');
+            addClass(currentWord.previousSibling, 'current');
+            removeClass(currentLetter, 'current');
+            addClass(currentWord.previousSibling.lastChild, 'current');
+            removeClass(currentWord.previousSibling.lastChild, 'incorrect');
+            removeClass(currentWord.previousSibling.lastChild, 'correct');
+        }
+    }
 
-  // move cursor
-  const nextLetter = document.querySelector('.letter.current');
-  const nextWord = document.querySelector('.word.current');
-  const cursor = document.getElementById('cursor');
-  if (nextLetter || nextWord) {
-    const rect = (nextLetter || nextWord).getBoundingClientRect();
-    cursor.style.top = rect.top + 2 + 'px';
-    cursor.style.left = rect[nextLetter ? 'left' : 'right'] + 'px';
-  }
+    // Scroll words upward
+    if (currentWord.getBoundingClientRect().top > 250) {
+        const wordsEl = document.getElementById('words');
+        const margin = parseInt(wordsEl.style.marginTop || '0px');
+        wordsEl.style.marginTop = (margin - 35) + 'px';
+    }
+
+    // Move cursor
+    const nextLetter = document.querySelector('.letter.current');
+    const nextWord = document.querySelector('.word.current');
+    const cursor = document.getElementById('cursor');
+    if (nextLetter) {
+        const rect = nextLetter.getBoundingClientRect();
+        cursor.style.top = rect.top + 2 + 'px';
+        cursor.style.left = rect.left + 'px';
+    }
 });
 
-document.getElementById('newGameBtn').addEventListener('click', () => newGame());
+// Button
+document.getElementById('newGameBtn').addEventListener('click', newGame);
 
+// Load stats on page load
+window.addEventListener('load', showStats);
+
+// Start the first game automatically
 newGame();
